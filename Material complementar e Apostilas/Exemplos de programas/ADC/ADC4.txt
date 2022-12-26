@@ -1,0 +1,82 @@
+/**
+  ******************************************************************************
+  * @file    main.c
+  * @author  Ac6
+  * @version V1.0
+  * @date    01-December-2013
+  * @brief   Default main function.
+  ******************************************************************************
+*/
+
+#include "stm32f4xx.h"		//inclusão das definições do microcontrolador
+#include "Setup_Fagner.h"
+
+//**************  Exemplo DSP  ****************//
+
+//array com amostras do sinal com ruído
+const uint16_t noise_signal[100]={
+	2048, 2484, 2218, 2163, 2577, 2611, 2528, 2890, 3052, 2821,
+    2928, 3233, 3257, 3334, 3462, 3309, 3352, 3732, 3716, 3495,
+    3718, 3817, 3533, 3711, 4095, 3771, 3439, 3803, 3947, 3616,
+	3655, 3804, 3497, 3383, 3652, 3574, 3288, 3273, 3197, 3059,
+	3193, 3121, 2703, 2672, 2836, 2549, 2375, 2578, 2309, 1828,
+	2047, 2267, 1786, 1517, 1720, 1546, 1259, 1423, 1392, 974,
+	902, 1036, 898, 822, 807, 521, 443, 712, 598, 291,
+	440, 479, 148, 292, 656, 324, 0, 384, 562, 278,
+	377, 600, 379, 363, 743, 786, 633, 761, 838, 862,
+	1167, 1274, 1043, 1205, 1567, 1484, 1518, 1932, 1877, 1611};
+
+//coeficientes do filtro digital definido pela seguinte equação:
+// a(1)*y(n) = b(1)*x(n) + b(2)*x(n-1) + ... + b(nb+1)*x(n-nb) - a(2)*y(n-1) - ... - a(na+1)*y(n-na)
+const float a[3] = {1.0000, -1.6475, 0.7009};
+const float b[3] = {0.0134, 0.0267, 0.0134};
+
+//array das amostras de entrada e saída
+int16_t vi[3]={0, 0, 0};
+int16_t vo[3]={0, 0, 0};
+
+//função principal
+int main(void)
+{
+	Configure_Clock();		//configura o sistema de clock
+	Delay_Start();			//inicializa as funções delay
+
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;		//habilita o clock do GPIOA (os pinos usados aqui estão no GPIOA)
+
+	//Configuração do DAC1 e DAC2
+	GPIOA->MODER |= (0b11<<8) | (0b11<<10); 	//inicialização dos pino PA4 e PA5 no modo analógico (saídas DAC1 e DAC2)
+	RCC->APB1ENR |= RCC_APB1ENR_DACEN;			//habilita o clock da interface digital do DAC
+	DAC->CR |= DAC_CR_BOFF1 | DAC_CR_BOFF2 |	//habilita o buffer analógico do DAC1 e DAC2
+			   DAC_CR_EN1 | DAC_CR_EN2;			//habilita o canal 1 e 2 do DAC
+
+	//configuração do ADC
+	GPIOA->MODER |= 0b11;						//pino PA0 como entrada analógica
+	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;			//habilita o clock da interface digital do ADC1
+	ADC->CCR |= 0b01 << 16; 					//prescaler /4
+	ADC1->SQR3 &= ~(0x1F);						//seleção do canal a ser convertido (IN_0)
+	ADC1->CR2 |= ADC_CR2_ADON;					//liga o conversor AD
+
+	uint8_t contador=0;							//indexador do array de amostras do sinal com ruído
+	while(1)
+	{
+		DAC->DHR12R1 = noise_signal[contador];	//escreve no DAC1
+		++contador;								//atualiza o indexador
+		if(contador == 100) contador = 0;		//verifica se chegou ao final do array
+
+		ADC1->CR2 |= ADC_CR2_SWSTART; 			//inicia a conversão em PA0
+		while(!(ADC1->SR & ADC_SR_EOC)); 		//aguarda o fim da conversão
+
+		vi[0] = (ADC1->DR)-2048;				//lê o sinal convertido
+
+		//etapa de filtragem
+		vo[0] = b[0]*vi[0]+b[1]*vi[1]+b[2]*vi[2]-a[1]*vo[1]-a[2]*vo[2];	//cálculo da amostra filtrada
+		vi[2] = vi[1];		//atualiza o array de amostras de entrada
+		vi[1] = vi[0];		//atualiza o array de amostras de entrada
+		vo[2] = vo[1];		//atualiza o array de amostras de saída
+		vo[1] = vo[0];		//atualiza o array de amostras de saída
+
+		DAC->DHR12R2 = vo[0]+2048;			//escreve a amostra filtrada no DAC2
+
+		Delay_us(200);						//aguarda para a próxima amostra
+	}
+}

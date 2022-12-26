@@ -1,0 +1,40 @@
+/**
+  ******************************************************************************
+  * @file    main.c
+  * @author  Ac6
+  * @version V1.0
+  * @date    01-December-2013
+  * @brief   Default main function.
+  ******************************************************************************
+*/
+
+#include "stm32f4xx.h"		//inclusão das definições do microcontrolador
+#include <stdio.h>			//necessário para usar as funções printf e scanf
+#include "Setup_Fagner.h"
+
+
+int main(void)
+{
+	Configure_Clock();			//configura o sistema de clock
+	USART1_Init();				//inicializa a USART1
+	Delay_Start();				//inicializa funções de Delay
+
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;	//habilita o clock do GPIOA
+	GPIOA->MODER |= 0b11;					//pino PA0 como entrada analógica
+
+	RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;		//liga o clock do ADC1
+
+	ADC->CCR |= 0b01 << 16;		//prescaler /4
+	ADC1->SQR1 &= ~(0xF << 20);	//conversão de apenas um canal
+	ADC1->SQR3 &= ~(0x1F);		//seleção do canal a ser convertido (IN_0)
+	ADC1->CR2 |= ADC_CR2_ADON;	//liga o conversor AD
+
+	while(1)
+	{
+		ADC1->CR2 |= ADC_CR2_SWSTART;		//inicia a conversão
+		while(!(ADC1->SR & ADC_SR_EOC));	//aguarda o fim da conversão
+		uint16_t leitura = ADC1->DR;		//faz a leitura do valor convertido
+		printf("%d\n", leitura);			//imprime o valor convertido no monitor
+		Delay_ms(500);						//aguarda 500ms para fazer a nova leitura
+	}
+}
